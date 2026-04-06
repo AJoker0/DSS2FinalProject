@@ -25,16 +25,16 @@ namespace FinalProjectDSS.Services
         {
             try
             {
-                // Trying to write down and read the test value
                 await _cache.SetStringAsync("health_check", "ok");
-                var val = await _cache.GetStringAsync("heath_check");
+                var val = await _cache.GetStringAsync("health_check");
 
                 if (val == "ok") return Ok(new { status = "healthy", service = "redis" });
                 return StatusCode(503, new { status = "unhealthy", service = "redis" });
             }
-            catch
+            catch (Exception ex)
             {
-                return StatusCode(503, new { status = "unhealthy", service = "redis" });
+                // ТЕПЕРЬ МЫ УВИДИМ РЕАЛЬНУЮ ПРИЧИНУ ОШИБКИ В БРАУЗЕРЕ
+                return StatusCode(503, new { status = "unhealthy", service = "redis", error = ex.Message });
             }
         }
         // GET / api /integrations/rabbitmq/health

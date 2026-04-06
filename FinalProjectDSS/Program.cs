@@ -17,10 +17,12 @@ namespace FinalProjectDSS
             builder.Services.AddControllers();
 
             //connect Redis
+            // Подключаем Redis
+            // Подключаем Redis
             builder.Services.AddStackExchangeRedisCache(options =>
             {
-                // take adress from Docker, and if start local - use localhost
-                options.Configuration = builder.Configuration["RedisConnection"] ?? "localhost:6379";
+                // Заменили "redis" на "todo_redis" (имя контейнера)
+                options.Configuration = "todo_redis:6379,abortConnect=false,connectTimeout=10000";
             });
 
             // register our service for work RabbitMQ

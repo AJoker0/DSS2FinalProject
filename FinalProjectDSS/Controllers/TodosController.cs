@@ -5,6 +5,9 @@ using FinalProjectDSS.Models;
 using FinalProjectDSS.DTOs;
 using System.IdentityModel.Tokens.Jwt;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
+using FinalProjectDSS.Services;
+using System.Text.Json;
 
 namespace FinalProjectDSS.Controllers
 {
@@ -14,10 +17,15 @@ namespace FinalProjectDSS.Controllers
     public class TodosController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly IDistributedCache _cache;
+        private readonly RabbitMqService _rabbitMqService;
 
-        public TodosController(AppDbContext context)
+        // Внедряем базу, кэш и сервис очередей
+        public TodosController(AppDbContext context, IDistributedCache cache, RabbitMqService rabbitMqService)
         {
             _context = context;
+            _cache = cache;
+            _rabbitMqService = rabbitMqService;
         }
 
         private Guid GetUserId()
@@ -43,19 +51,46 @@ namespace FinalProjectDSS.Controllers
             };
         }
 
-        // --- НОВЫЙ МЕТОД: ПУБЛИЧНЫЕ ЗАДАЧИ (БЕЗ АВТОРИЗАЦИИ) ---
-        [AllowAnonymous] // Разрешаем вход без токена
+        // --- ПУБЛИЧНЫЕ ЗАДАЧИ (С REDIS КЭШИРОВАНИЕМ) ---
+        [AllowAnonymous]
         [HttpGet("public")]
         public async Task<IActionResult> GetPublicTodos([FromQuery] string? status, [FromQuery] string? priority,
             [FromQuery] string? dueFrom, [FromQuery] string? dueTo, [FromQuery] string? search,
             [FromQuery] string sortBy = "createdAt", [FromQuery] string sortDir = "desc",
             [FromQuery] int page = 1, [FromQuery] int pageSize = 10)
         {
-            var query = _context.Todos.Where(t => t.IsPublic); // Только публичные
-            return await ApplyFiltersAndReturn(query, page, pageSize, status, priority, dueFrom, dueTo, search, sortBy, sortDir);
+            // 1. Формируем уникальный ключ для этого конкретного запроса
+            string cacheKey = $"public_todos_{page}_{pageSize}_{search}_{status}_{priority}_{sortBy}_{sortDir}";
+
+            // 2. Ищем в Redis (чтобы не нагружать PostgreSQL)
+            var cachedData = await _cache.GetStringAsync(cacheKey);
+            if (!string.IsNullOrEmpty(cachedData))
+            {
+                // Нашли в кэше! Отдаем моментально.
+                return Content(cachedData, "application/json");
+            }
+
+            // 3. Если в кэше нет - идем в базу данных
+            var query = _context.Todos.Where(t => t.IsPublic);
+
+            // Выполняем стандартную фильтрацию
+            var result = await ApplyFiltersAndReturn(query, page, pageSize, status, priority, dueFrom, dueTo, search, sortBy, sortDir) as OkObjectResult;
+
+            // 4. Сохраняем результат в кэш на 1 минуту
+            if (result != null && result.Value != null)
+            {
+                await _cache.SetStringAsync(cacheKey, JsonSerializer.Serialize(result.Value), new DistributedCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(1)
+                });
+
+                return result; // Возвращаем успешный ответ
+            }
+
+            return BadRequest(); // Если что-то пошло не так
         }
 
-        // --- ОБНОВЛЕННЫЙ МЕТОД: ЛИЧНЫЕ ЗАДАЧИ ---
+        // --- ЛИЧНЫЕ ЗАДАЧИ ---
         [HttpGet]
         public async Task<IActionResult> GetAllTodos([FromQuery] string? status, [FromQuery] string? priority,
             [FromQuery] string? dueFrom, [FromQuery] string? dueTo, [FromQuery] string? search,
@@ -63,49 +98,42 @@ namespace FinalProjectDSS.Controllers
             [FromQuery] int page = 1, [FromQuery] int pageSize = 10)
         {
             var userId = GetUserId();
-            var query = _context.Todos.Where(t => t.UserId == userId); // Только свои
+            var query = _context.Todos.Where(t => t.UserId == userId);
             return await ApplyFiltersAndReturn(query, page, pageSize, status, priority, dueFrom, dueTo, search, sortBy, sortDir);
         }
 
-        // Общая логика фильтрации для обоих методов
+        // --- Общая логика фильтрации ---
         private async Task<IActionResult> ApplyFiltersAndReturn(IQueryable<TodoItem> query, int page, int pageSize,
             string? status, string? priority, string? dueFrom, string? dueTo, string? search, string sortBy, string sortDir)
         {
-            // 1. Валидация пагинации (ТЗ 5.5)
             if (page < 1 || pageSize < 1 || pageSize > 50) return BadRequest();
 
-            // 2. Фильтрация по статусу
             if (status == "active") query = query.Where(t => !t.IsCompleted);
             else if (status == "completed") query = query.Where(t => t.IsCompleted);
 
-            // 3. Фильтрация по приоритету
             if (!string.IsNullOrEmpty(priority) && Enum.TryParse<Priority>(priority, out var p))
                 query = query.Where(t => t.Priority == p);
 
-            // 4. Фильтрация по датам
             if (!string.IsNullOrEmpty(dueFrom) && DateTime.TryParse(dueFrom, out var dFrom))
                 query = query.Where(t => t.DueDate >= dFrom.ToUniversalTime());
             if (!string.IsNullOrEmpty(dueTo) && DateTime.TryParse(dueTo, out var dTo))
                 query = query.Where(t => t.DueDate <= dTo.ToUniversalTime());
 
-            // 5. Поиск (search)
             if (!string.IsNullOrEmpty(search))
                 query = query.Where(t => t.Title.Contains(search) || (t.Details != null && t.Details.Contains(search)));
 
-            // 6. Сортировка
+            // Улучшенная сортировка (защита от бага с одинаковым временем для тестов Cypress)
             query = sortBy.ToLower() switch
             {
-                "duedate" => sortDir == "asc" ? query.OrderBy(t => t.DueDate) : query.OrderByDescending(t => t.DueDate),
-                "priority" => sortDir == "asc" ? query.OrderBy(t => t.Priority) : query.OrderByDescending(t => t.Priority),
-                "title" => sortDir == "asc" ? query.OrderBy(t => t.Title) : query.OrderByDescending(t => t.Title),
-                _ => sortDir == "asc" ? query.OrderBy(t => t.CreatedAt) : query.OrderByDescending(t => t.CreatedAt)
+                "duedate" => sortDir == "asc" ? query.OrderBy(t => t.DueDate).ThenBy(t => t.Id) : query.OrderByDescending(t => t.DueDate).ThenBy(t => t.Id),
+                "priority" => sortDir == "asc" ? query.OrderBy(t => t.Priority).ThenBy(t => t.Id) : query.OrderByDescending(t => t.Priority).ThenBy(t => t.Id),
+                "title" => sortDir == "asc" ? query.OrderBy(t => t.Title).ThenBy(t => t.Id) : query.OrderByDescending(t => t.Title).ThenBy(t => t.Id),
+                _ => sortDir == "asc" ? query.OrderBy(t => t.CreatedAt).ThenBy(t => t.Id) : query.OrderByDescending(t => t.CreatedAt).ThenBy(t => t.Id)
             };
 
-            // 7. Считаем итоги для пагинации
             var totalItems = await query.CountAsync();
             var totalPages = (int)Math.Ceiling(totalItems / (double)pageSize);
 
-            // 8. Применяем пагинацию (Skip и Take)
             var items = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
 
             var response = new PagedResponse<TodoResponse>
@@ -120,7 +148,8 @@ namespace FinalProjectDSS.Controllers
             return Ok(response);
         }
 
-        // Остальные методы CRUD (Create, GetById, Update, Delete) остаются без изменений...
+        // --- СОЗДАНИЕ (с отправкой в RabbitMQ) ---
+        // --- СОЗДАНИЕ (с отправкой в RabbitMQ и правильным 201 ответом) ---
         [HttpPost]
         public IActionResult CreateTodo([FromBody] CreateTodoRequest request)
         {
@@ -131,16 +160,22 @@ namespace FinalProjectDSS.Controllers
                 UserId = userId,
                 Title = request.Title,
                 Details = request.Details,
-                Priority = Enum.Parse<Priority>(request.Priority),
-                DueDate = request.DueDate != null ? DateTime.Parse(request.DueDate).ToUniversalTime() : null,
+                Priority = Enum.Parse<Priority>(request.Priority, true),
+                // Безопасный парсинг даты
+                DueDate = string.IsNullOrWhiteSpace(request.DueDate) ? null : DateTime.Parse(request.DueDate).ToUniversalTime(),
                 IsPublic = request.IsPublic,
                 IsCompleted = false,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
+
             _context.Todos.Add(todo);
             _context.SaveChanges();
-            return Created($"/api/todos/{todo.Id}", MapToResponse(todo));
+
+            _rabbitMqService.PublishEvent("TodoCreated", new { Id = todo.Id, Title = todo.Title, IsPublic = todo.IsPublic });
+
+            // CreatedAtAction автоматически подставляет заголовок Location! (Требование 5.6)
+            return CreatedAtAction(nameof(GetTodo), new { id = todo.Id }, MapToResponse(todo));
         }
 
         [HttpGet("{id}")]
@@ -148,27 +183,42 @@ namespace FinalProjectDSS.Controllers
         {
             var userId = GetUserId();
             var todo = _context.Todos.FirstOrDefault(t => t.Id == id);
+
             if (todo == null) return NotFound();
             if (todo.UserId != userId) return StatusCode(403, new { message = "Forbidden" });
+
             return Ok(MapToResponse(todo));
         }
 
+        // --- ОБНОВЛЕНИЕ (с отправкой в RabbitMQ) ---
+        // --- ОБНОВЛЕНИЕ (с правильным парсингом даты) ---
         [HttpPut("{id}")]
         public IActionResult UpdateTodo(Guid id, [FromBody] UpdateTodoRequest request)
         {
             var userId = GetUserId();
             var todo = _context.Todos.FirstOrDefault(t => t.Id == id);
+
             if (todo == null) return NotFound();
             if (todo.UserId != userId) return StatusCode(403, new { message = "Forbidden" });
 
             todo.Title = request.Title;
             todo.Details = request.Details;
-            todo.Priority = Enum.Parse<Priority>(request.Priority);
-            todo.DueDate = request.DueDate != null ? DateTime.Parse(request.DueDate).ToUniversalTime() : null;
+
+            // true игнорирует регистр (Low, low, LOW)
+            todo.Priority = Enum.Parse<Priority>(request.Priority, true);
+
+            // ВОТ ТА САМАЯ ОБНОВЛЕННАЯ СТРОЧКА ДЛЯ ДАТЫ:
+            todo.DueDate = string.IsNullOrWhiteSpace(request.DueDate) ? null : DateTime.Parse(request.DueDate).ToUniversalTime();
+
             todo.IsPublic = request.IsPublic;
             todo.IsCompleted = request.IsCompleted;
             todo.UpdatedAt = DateTime.UtcNow;
+
             _context.SaveChanges();
+
+            // Отправляем событие об обновлении в брокер сообщений
+            _rabbitMqService.PublishEvent("TodoUpdated", new { Id = todo.Id, Title = todo.Title });
+
             return Ok(MapToResponse(todo));
         }
 
@@ -177,23 +227,34 @@ namespace FinalProjectDSS.Controllers
         {
             var userId = GetUserId();
             var todo = _context.Todos.FirstOrDefault(t => t.Id == id);
+
             if (todo == null) return NotFound();
             if (todo.UserId != userId) return StatusCode(403, new { message = "Forbidden" });
+
             todo.IsCompleted = request.IsCompleted;
             todo.UpdatedAt = DateTime.UtcNow;
+
             _context.SaveChanges();
+
             return Ok(MapToResponse(todo));
         }
 
+        // --- УДАЛЕНИЕ (с отправкой в RabbitMQ) ---
         [HttpDelete("{id}")]
         public IActionResult DeleteTodo(Guid id)
         {
             var userId = GetUserId();
             var todo = _context.Todos.FirstOrDefault(t => t.Id == id);
+
             if (todo == null) return NotFound();
             if (todo.UserId != userId) return StatusCode(403, new { message = "Forbidden" });
+
             _context.Todos.Remove(todo);
             _context.SaveChanges();
+
+            // Отправляем событие об удалении в брокер сообщений
+            _rabbitMqService.PublishEvent("TodoDeleted", new { Id = id });
+
             return NoContent();
         }
     }
