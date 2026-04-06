@@ -1,0 +1,22 @@
+﻿
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+WORKDIR /src
+
+
+COPY ["FinalProjectDSS.csproj", "./"]
+RUN dotnet restore "FinalProjectDSS.csproj"
+
+
+COPY . .
+RUN dotnet build "FinalProjectDSS.csproj" -c Release -o /app/build
+RUN dotnet publish "FinalProjectDSS.csproj" -c Release -o /app/publish
+
+
+FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS final
+WORKDIR /app
+COPY --from=build /app/publish .
+
+EXPOSE 3087
+ENV ASPNETCORE_URLS=http://+:3087
+
+ENTRYPOINT ["dotnet", "FinalProjectDSS.dll"]

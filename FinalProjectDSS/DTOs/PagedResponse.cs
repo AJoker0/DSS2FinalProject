@@ -1,6 +1,6 @@
 ﻿namespace FinalProjectDSS.DTOs
 {
-    public class PagedResponse
+    public class PagedResponse<T>
     {
         public List<T> Items { get; set; } = new();
         public int Page { get; set; }
