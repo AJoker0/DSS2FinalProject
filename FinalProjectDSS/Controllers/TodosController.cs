@@ -58,7 +58,7 @@ namespace FinalProjectDSS.Controllers
                 Title = request.Title,
                 Details = request.Details,
                 Priority = Enum.Parse<Priority>(request.Priority),// Turning the line into Enum
-                DueDate = request.DueDate != null ? DateTime.Parse(request.DueDate) : null,
+                DueDate = request.DueDate != null ? DateTime.Parse(request.DueDate).ToUniversalTime() : null,
                 IsPublic = request.IsPublic,
                 IsCompleted = false,
                 CreatedAt = DateTime.UtcNow,
@@ -71,6 +71,23 @@ namespace FinalProjectDSS.Controllers
 
             //return status 201 Created
             return Created($"/api/todos/{todo.Id}", MapToResponse(todo));
+        }
+
+        [HttpGet]
+        public IActionResult GetAllTodos()
+        {
+            var userId = GetUserId(); // know who asks tasks
+
+            //search in database for all tasks where UserId is the same as our user's ID
+            var todos = _context.Todos
+                .Where(t => t.UserId == userId)
+                .ToList();
+
+            // transfer each database model into a beautiful DTO response
+            var response = todos.Select(t => MapToResponse(t));
+
+            // return 200 OK and array of tasks
+            return Ok(response);
         }
 
         [HttpGet("{id}")]
@@ -95,12 +112,12 @@ namespace FinalProjectDSS.Controllers
             var todo = _context.Todos.FirstOrDefault(t => t.Id == id);
 
             if (todo == null) return NotFound();
-            if (todo.User.Id != userId) return StatusCode(403, new { message = "Forbidden" });
+            if (todo.UserId != userId) return StatusCode(403, new { message = "Forbidden" });
 
             todo.Title = request.Title;
             todo.Details = request.Details;
             todo.Priority = Enum.Parse<Priority>(request.Priority);
-            todo.DueDate = request.DueDate != null ? DateTime.Parse(request.DueDate) : null;
+            todo.DueDate = request.DueDate != null ? DateTime.Parse(request.DueDate).ToUniversalTime() : null;
             todo.IsPublic = request.IsPublic;
             todo.IsCompleted = request.IsCompleted;
             todo.UpdatedAt = DateTime.UtcNow;
