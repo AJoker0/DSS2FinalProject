@@ -1,7 +1,5 @@
-﻿version: '3.8'
-
-services:
-  # Наша база данных PostgreSQL (оставляем как было)
+﻿services:
+  # 1. Наша база данных
   db:
     image: postgres:15-alpine
     container_name: todo_postgres
@@ -14,23 +12,42 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
-  # Наш новый C# API
+  # 2. Redis для кэширования
+  redis:
+    image: redis:7-alpine
+    container_name: todo_redis
+    ports:
+      - "6379:6379"
+
+  # 3. RabbitMQ для очередей сообщений (+ панель управления)
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: todo_rabbitmq
+    ports:
+      - "5672:5672"   # Порт для подключения C#
+      - "15672:15672" # Красивая админ-панель для браузера (покажешь преподу!)
+
+  # 4. Твой API
   api:
     build: 
       context: .
       dockerfile: Dockerfile
     container_name: todo_api
     environment:
-      # Подключаемся к контейнеру 'db' по его имени внутри Docker сети!
       - ConnectionStrings__DefaultConnection=Host=db;Port=5432;Database=TodoDb;Username=postgres;Password=5671
       - Jwt__Key=SuperSecretKeyThatIsAtLeast32CharactersLong!
       - Jwt__Issuer=TodoApi
       - Jwt__Audience=TodoApiClient
       - ASPNETCORE_ENVIRONMENT=Development
+      # Передаем настройки для новых сервисов:
+      - RedisConnection=redis:6379
+      - RabbitHost=rabbitmq
     ports:
-      - "3087:3087" # Порт из спецификации
+      - "3087:3087"
     depends_on:
-      - db # API ждет, пока запустится база
+      - db
+      - redis
+      - rabbitmq
 
 volumes:
   pgdata:
