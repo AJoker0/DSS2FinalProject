@@ -59,35 +59,35 @@ namespace FinalProjectDSS.Controllers
             [FromQuery] string sortBy = "createdAt", [FromQuery] string sortDir = "desc",
             [FromQuery] int page = 1, [FromQuery] int pageSize = 10)
         {
-            // 1. Формируем уникальный ключ для этого конкретного запроса
+            // 1. Формируем уникальный ключ
             string cacheKey = $"public_todos_{page}_{pageSize}_{search}_{status}_{priority}_{sortBy}_{sortDir}";
 
-            // 2. Ищем в Redis (чтобы не нагружать PostgreSQL)
+            // 2. Ищем в Redis
             var cachedData = await _cache.GetStringAsync(cacheKey);
             if (!string.IsNullOrEmpty(cachedData))
             {
-                // Нашли в кэше! Отдаем моментально.
                 return Content(cachedData, "application/json");
             }
 
-            // 3. Если в кэше нет - идем в базу данных
+            // 3. Идем в базу данных
             var query = _context.Todos.Where(t => t.IsPublic);
-
-            // Выполняем стандартную фильтрацию
             var result = await ApplyFiltersAndReturn(query, page, pageSize, status, priority, dueFrom, dueTo, search, sortBy, sortDir) as OkObjectResult;
 
-            // 4. Сохраняем результат в кэш на 1 минуту
+            // 4. Сохраняем в кэш (С ПРАВИЛЬНЫМ РЕГИСТРОМ БУКВ)
             if (result != null && result.Value != null)
             {
-                await _cache.SetStringAsync(cacheKey, JsonSerializer.Serialize(result.Value), new DistributedCacheEntryOptions
+                // Говорим сериализатору использовать camelCase (маленькие буквы)
+                var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
+                await _cache.SetStringAsync(cacheKey, JsonSerializer.Serialize(result.Value, jsonOptions), new DistributedCacheEntryOptions
                 {
                     AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(1)
                 });
 
-                return result; // Возвращаем успешный ответ
+                return result;
             }
 
-            return BadRequest(); // Если что-то пошло не так
+            return BadRequest();
         }
 
         // --- ЛИЧНЫЕ ЗАДАЧИ ---
