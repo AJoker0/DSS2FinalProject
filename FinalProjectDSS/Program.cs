@@ -16,6 +16,16 @@ namespace FinalProjectDSS
             // Add services to the container.
             builder.Services.AddControllers();
 
+            //connect Redis
+            builder.Services.AddStackExchangeRedisCache(options =>
+            {
+                // take adress from Docker, and if start local - use localhost
+                options.Configuration = builder.Configuration["RedisConnection"] ?? "localhost:6379";
+            });
+
+            // register our service for work RabbitMQ
+            builder.Services.AddSingleton<FinalProjectDSS.Services.RabbitMqService>();
+
             builder.Services.AddCors(options =>
             {
                 options.AddPolicy("AllowAll", policy =>
