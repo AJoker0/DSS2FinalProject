@@ -1,5 +1,6 @@
-﻿services:
-  # 1. Наша база данных
+﻿version: '3.8'
+
+services:
   db:
     image: postgres:15-alpine
     container_name: todo_postgres
@@ -12,22 +13,23 @@
     volumes:
       - pgdata:/var/lib/postgresql/data
 
-  # 2. Redis для кэширования
   redis:
     image: redis:7-alpine
     container_name: todo_redis
     ports:
       - "6379:6379"
 
-  # 3. RabbitMQ для очередей сообщений (+ панель управления)
   rabbitmq:
     image: rabbitmq:3-management-alpine
     container_name: todo_rabbitmq
+    environment:
+      # Создаем админа, чтобы пускал по сети
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin123
     ports:
-      - "5672:5672"   # Порт для подключения C#
-      - "15672:15672" # Красивая админ-панель для браузера (покажешь преподу!)
+      - "5672:5672"
+      - "15672:15672"
 
-  # 4. Твой API
   api:
     build: 
       context: .
@@ -39,9 +41,11 @@
       - Jwt__Issuer=TodoApi
       - Jwt__Audience=TodoApiClient
       - ASPNETCORE_ENVIRONMENT=Development
-      # Передаем настройки для новых сервисов:
-      - RedisConnection=redis:6379
+      # Обновленные доступы:
+      - RedisConnection=redis:6379,abortConnect=false
       - RabbitHost=rabbitmq
+      - RabbitUser=admin
+      - RabbitPass=admin123
     ports:
       - "3087:3087"
     depends_on:

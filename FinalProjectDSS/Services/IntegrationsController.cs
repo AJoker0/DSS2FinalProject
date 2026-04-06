@@ -38,22 +38,25 @@ namespace FinalProjectDSS.Services
             }
         }
         // GET / api /integrations/rabbitmq/health
-        [HttpGet("rebbitmq/health")]
-        public IActionResult RabbitMQHealth()
+        [HttpGet("rabbitmq/health")]
+        public IActionResult RabbitMqHealth()
         {
             try
             {
-                // try to connect to RabbitMQ
-                var factory = new ConnectionFactory { HostName = _configuration["RabbitHost"] ?? "localhost" };
+                var factory = new ConnectionFactory
+                {
+                    HostName = _configuration["RabbitHost"] ?? "localhost",
+                    UserName = _configuration["RabbitUser"] ?? "guest",
+                    Password = _configuration["RabbitPass"] ?? "guest"
+                };
                 using var connection = factory.CreateConnection();
 
                 if (connection.IsOpen) return Ok(new { status = "healthy", service = "rabbitmq" });
                 return StatusCode(503, new { status = "unhealthy", service = "rabbitmq" });
-
             }
             catch
             {
-                return StatusCode(503, new { status = "unhealthy", serice = "rabbitmq" });
+                return StatusCode(503, new { status = "unhealthy", service = "rabbitmq" });
             }
         }
     }
