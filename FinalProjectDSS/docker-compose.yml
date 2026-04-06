@@ -26,6 +26,7 @@ services:
       - Jwt__Key=SuperSecretKeyThatIsAtLeast32CharactersLong!
       - Jwt__Issuer=TodoApi
       - Jwt__Audience=TodoApiClient
+      - ASPNETCORE_ENVIRONMENT=Development
     ports:
       - "3087:3087" # Порт из спецификации
     depends_on:
