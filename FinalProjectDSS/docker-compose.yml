@@ -1,18 +1,35 @@
 ﻿version: '3.8'
 
 services:
-    db:
-        image: postgres:15-alpine
-        container_name: todo_postgres
-        environment:
-            POSTGRES_USER: postgres
-            POSTGRES_PASSWORD: 5671
-            POSTGRES_DB: TodoDb
-        ports:
-            - "5433:5432"
+  # Наша база данных PostgreSQL (оставляем как было)
+  db:
+    image: postgres:15-alpine
+    container_name: todo_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 5671
+      POSTGRES_DB: TodoDb
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
 
-        volumes:
-            - pgdata:/var/lib/postgresql/data
+  # Наш новый C# API
+  api:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: todo_api
+    environment:
+      # Подключаемся к контейнеру 'db' по его имени внутри Docker сети!
+      - ConnectionStrings__DefaultConnection=Host=db;Port=5432;Database=TodoDb;Username=postgres;Password=5671
+      - Jwt__Key=SuperSecretKeyThatIsAtLeast32CharactersLong!
+      - Jwt__Issuer=TodoApi
+      - Jwt__Audience=TodoApiClient
+    ports:
+      - "3087:3087" # Порт из спецификации
+    depends_on:
+      - db # API ждет, пока запустится база
 
 volumes:
-    pgdata:
+  pgdata:
