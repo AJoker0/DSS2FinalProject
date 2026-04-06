@@ -2,9 +2,7 @@
 using Microsoft.Extensions.Caching.Distributed;
 using RabbitMQ.Client;
 
-
-
-namespace FinalProjectDSS.Services
+namespace FinalProjectDSS.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
@@ -19,7 +17,7 @@ namespace FinalProjectDSS.Services
             _configuration = configuration;
         }
 
-        // Get /api/integrations/redis/health
+        // GET /api/integrations/redis/health
         [HttpGet("redis/health")]
         public async Task<IActionResult> RedisHealth()
         {
@@ -28,16 +26,17 @@ namespace FinalProjectDSS.Services
                 await _cache.SetStringAsync("health_check", "ok");
                 var val = await _cache.GetStringAsync("health_check");
 
-                if (val == "ok") return Ok(new { status = "healthy", service = "redis" });
-                return StatusCode(503, new { status = "unhealthy", service = "redis" });
+                // Строго по спецификации: слово "connected"
+                if (val == "ok") return Ok(new { status = "connected", service = "redis" });
+                return StatusCode(503, new { status = "error", service = "redis" });
             }
             catch (Exception ex)
             {
-                // ТЕПЕРЬ МЫ УВИДИМ РЕАЛЬНУЮ ПРИЧИНУ ОШИБКИ В БРАУЗЕРЕ
-                return StatusCode(503, new { status = "unhealthy", service = "redis", error = ex.Message });
+                return StatusCode(503, new { status = "error", service = "redis", error = ex.Message });
             }
         }
-        // GET / api /integrations/rabbitmq/health
+
+        // GET /api/integrations/rabbitmq/health
         [HttpGet("rabbitmq/health")]
         public IActionResult RabbitMqHealth()
         {
@@ -51,14 +50,14 @@ namespace FinalProjectDSS.Services
                 };
                 using var connection = factory.CreateConnection();
 
-                if (connection.IsOpen) return Ok(new { status = "healthy", service = "rabbitmq" });
-                return StatusCode(503, new { status = "unhealthy", service = "rabbitmq" });
+                // Строго по спецификации: слово "connected"
+                if (connection.IsOpen) return Ok(new { status = "connected", service = "rabbitmq" });
+                return StatusCode(503, new { status = "error", service = "rabbitmq" });
             }
-            catch
+            catch (Exception ex)
             {
-                return StatusCode(503, new { status = "unhealthy", service = "rabbitmq" });
+                return StatusCode(503, new { status = "error", service = "rabbitmq", error = ex.Message });
             }
         }
     }
-    
 }

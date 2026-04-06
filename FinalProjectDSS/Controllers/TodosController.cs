@@ -20,7 +20,6 @@ namespace FinalProjectDSS.Controllers
         private readonly IDistributedCache _cache;
         private readonly RabbitMqService _rabbitMqService;
 
-        // Внедряем базу, кэш и сервис очередей
         public TodosController(AppDbContext context, IDistributedCache cache, RabbitMqService rabbitMqService)
         {
             _context = context;
@@ -51,7 +50,7 @@ namespace FinalProjectDSS.Controllers
             };
         }
 
-        // --- ПУБЛИЧНЫЕ ЗАДАЧИ (С REDIS КЭШИРОВАНИЕМ) ---
+        // --- ПУБЛИЧНЫЕ ЗАДАЧИ ---
         [AllowAnonymous]
         [HttpGet("public")]
         public async Task<IActionResult> GetPublicTodos([FromQuery] string? status, [FromQuery] string? priority,
@@ -59,26 +58,21 @@ namespace FinalProjectDSS.Controllers
             [FromQuery] string sortBy = "createdAt", [FromQuery] string sortDir = "desc",
             [FromQuery] int page = 1, [FromQuery] int pageSize = 10)
         {
-            // 1. Формируем уникальный ключ
             string cacheKey = $"public_todos_{page}_{pageSize}_{search}_{status}_{priority}_{sortBy}_{sortDir}";
 
-            // 2. Ищем в Redis
             var cachedData = await _cache.GetStringAsync(cacheKey);
             if (!string.IsNullOrEmpty(cachedData))
             {
                 return Content(cachedData, "application/json");
             }
 
-            // 3. Идем в базу данных
             var query = _context.Todos.Where(t => t.IsPublic);
             var result = await ApplyFiltersAndReturn(query, page, pageSize, status, priority, dueFrom, dueTo, search, sortBy, sortDir) as OkObjectResult;
 
-            // 4. Сохраняем в кэш (С ПРАВИЛЬНЫМ РЕГИСТРОМ БУКВ)
             if (result != null && result.Value != null)
             {
-                // Говорим сериализатору использовать camelCase (маленькие буквы)
+                // Фикс для фронтенда: сохраняем в кэш с маленькой буквы (camelCase)
                 var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-
                 await _cache.SetStringAsync(cacheKey, JsonSerializer.Serialize(result.Value, jsonOptions), new DistributedCacheEntryOptions
                 {
                     AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(1)
@@ -102,16 +96,25 @@ namespace FinalProjectDSS.Controllers
             return await ApplyFiltersAndReturn(query, page, pageSize, status, priority, dueFrom, dueTo, search, sortBy, sortDir);
         }
 
-        // --- Общая логика фильтрации ---
+        // --- ЛОГИКА ФИЛЬТРАЦИИ С ЖЕСТКИМИ ПРОВЕРКАМИ (Раздел 5.4) ---
         private async Task<IActionResult> ApplyFiltersAndReturn(IQueryable<TodoItem> query, int page, int pageSize,
             string? status, string? priority, string? dueFrom, string? dueTo, string? search, string sortBy, string sortDir)
         {
+            // Строгие проверки из спецификации
             if (page < 1 || pageSize < 1 || pageSize > 50) return BadRequest();
+            if (!string.IsNullOrEmpty(search) && search.Length > 100) return BadRequest();
 
+            status = status?.ToLower() ?? "all";
+            if (status != "all" && status != "active" && status != "completed") return BadRequest();
+
+            sortDir = sortDir?.ToLower() ?? "desc";
+            if (sortDir != "asc" && sortDir != "desc") return BadRequest();
+
+            // Фильтры
             if (status == "active") query = query.Where(t => !t.IsCompleted);
             else if (status == "completed") query = query.Where(t => t.IsCompleted);
 
-            if (!string.IsNullOrEmpty(priority) && Enum.TryParse<Priority>(priority, out var p))
+            if (!string.IsNullOrEmpty(priority) && Enum.TryParse<Priority>(priority, true, out var p))
                 query = query.Where(t => t.Priority == p);
 
             if (!string.IsNullOrEmpty(dueFrom) && DateTime.TryParse(dueFrom, out var dFrom))
@@ -122,7 +125,7 @@ namespace FinalProjectDSS.Controllers
             if (!string.IsNullOrEmpty(search))
                 query = query.Where(t => t.Title.Contains(search) || (t.Details != null && t.Details.Contains(search)));
 
-            // Улучшенная сортировка (защита от бага с одинаковым временем для тестов Cypress)
+            // Сортировка
             query = sortBy.ToLower() switch
             {
                 "duedate" => sortDir == "asc" ? query.OrderBy(t => t.DueDate).ThenBy(t => t.Id) : query.OrderByDescending(t => t.DueDate).ThenBy(t => t.Id),
@@ -133,7 +136,6 @@ namespace FinalProjectDSS.Controllers
 
             var totalItems = await query.CountAsync();
             var totalPages = (int)Math.Ceiling(totalItems / (double)pageSize);
-
             var items = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
 
             var response = new PagedResponse<TodoResponse>
@@ -148,8 +150,7 @@ namespace FinalProjectDSS.Controllers
             return Ok(response);
         }
 
-        // --- СОЗДАНИЕ (с отправкой в RabbitMQ) ---
-        // --- СОЗДАНИЕ (с отправкой в RabbitMQ и правильным 201 ответом) ---
+        // --- CRUD ОПЕРАЦИИ ---
         [HttpPost]
         public IActionResult CreateTodo([FromBody] CreateTodoRequest request)
         {
@@ -161,7 +162,6 @@ namespace FinalProjectDSS.Controllers
                 Title = request.Title,
                 Details = request.Details,
                 Priority = Enum.Parse<Priority>(request.Priority, true),
-                // Безопасный парсинг даты
                 DueDate = string.IsNullOrWhiteSpace(request.DueDate) ? null : DateTime.Parse(request.DueDate).ToUniversalTime(),
                 IsPublic = request.IsPublic,
                 IsCompleted = false,
@@ -174,7 +174,6 @@ namespace FinalProjectDSS.Controllers
 
             _rabbitMqService.PublishEvent("TodoCreated", new { Id = todo.Id, Title = todo.Title, IsPublic = todo.IsPublic });
 
-            // CreatedAtAction автоматически подставляет заголовок Location! (Требование 5.6)
             return CreatedAtAction(nameof(GetTodo), new { id = todo.Id }, MapToResponse(todo));
         }
 
@@ -190,8 +189,6 @@ namespace FinalProjectDSS.Controllers
             return Ok(MapToResponse(todo));
         }
 
-        // --- ОБНОВЛЕНИЕ (с отправкой в RabbitMQ) ---
-        // --- ОБНОВЛЕНИЕ (с правильным парсингом даты) ---
         [HttpPut("{id}")]
         public IActionResult UpdateTodo(Guid id, [FromBody] UpdateTodoRequest request)
         {
@@ -203,20 +200,14 @@ namespace FinalProjectDSS.Controllers
 
             todo.Title = request.Title;
             todo.Details = request.Details;
-
-            // true игнорирует регистр (Low, low, LOW)
             todo.Priority = Enum.Parse<Priority>(request.Priority, true);
-
-            // ВОТ ТА САМАЯ ОБНОВЛЕННАЯ СТРОЧКА ДЛЯ ДАТЫ:
             todo.DueDate = string.IsNullOrWhiteSpace(request.DueDate) ? null : DateTime.Parse(request.DueDate).ToUniversalTime();
-
             todo.IsPublic = request.IsPublic;
             todo.IsCompleted = request.IsCompleted;
             todo.UpdatedAt = DateTime.UtcNow;
 
             _context.SaveChanges();
 
-            // Отправляем событие об обновлении в брокер сообщений
             _rabbitMqService.PublishEvent("TodoUpdated", new { Id = todo.Id, Title = todo.Title });
 
             return Ok(MapToResponse(todo));
@@ -236,10 +227,12 @@ namespace FinalProjectDSS.Controllers
 
             _context.SaveChanges();
 
+            // ДОБАВЛЕНО ТРЕБОВАНИЕ ИЗ ТЗ (Раздел 9: Отправка TodoCompleted)
+            _rabbitMqService.PublishEvent("TodoCompleted", new { Id = todo.Id, IsCompleted = todo.IsCompleted });
+
             return Ok(MapToResponse(todo));
         }
 
-        // --- УДАЛЕНИЕ (с отправкой в RabbitMQ) ---
         [HttpDelete("{id}")]
         public IActionResult DeleteTodo(Guid id)
         {
@@ -252,7 +245,6 @@ namespace FinalProjectDSS.Controllers
             _context.Todos.Remove(todo);
             _context.SaveChanges();
 
-            // Отправляем событие об удалении в брокер сообщений
             _rabbitMqService.PublishEvent("TodoDeleted", new { Id = id });
 
             return NoContent();
