@@ -13,6 +13,14 @@ namespace FinalProjectDSS
         {
             var builder = WebApplication.CreateBuilder(args);
 
+            if (Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true")
+            {
+                builder.Configuration["ConnectionStrings:DefaultConnection"] = "Host=db;Port=5432;Database=TodoDb;Username=postgres;Password=postgres";
+                builder.Configuration["RedisConnection"] = "redis:6379,abortConnect=false";
+                builder.Configuration["RabbitHost"] = "rabbitmq";
+                builder.Configuration["Jwt:Key"] = "SuperSecretKeyThatIsAtLeast32CharactersLong!";
+            }
+
             // Add services to the container.
             builder.Services.AddControllers();
 
@@ -90,6 +98,12 @@ namespace FinalProjectDSS
             builder.Services.AddAuthorization();
 
             var app = builder.Build();
+
+            using (var scope = app.Services.CreateScope())
+            {
+                var dbContext = scope.ServiceProvider.GetRequiredService<FinalProjectDSS.Data.AppDbContext>();
+                dbContext.Database.Migrate();
+            }
 
             // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())

@@ -17,5 +17,5 @@ COPY --from=build /app/publish .
 
 EXPOSE 3087
 ENV ASPNETCORE_URLS=http://+:3087
-
+ENV ConnectionStrings__DefaultConnection="Host=db;Port=5432;Database=TodoDb;Username=postgres;Password=5671"
 ENTRYPOINT ["dotnet", "FinalProjectDSS.dll"]
