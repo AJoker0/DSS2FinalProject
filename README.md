@@ -9,17 +9,9 @@
 
 ## 1. Project Overview
 
-This document outlines the implementation of a comprehensive Todo Management API built with **ASP.NET Core 9.0**, following RESTful API principles. The application is containerized using Docker and includes enterprise-grade integrations for caching (Redis), event-driven architecture (RabbitMQ), and relational data management (PostgreSQL).
+This document outlines the implementation of my Todo Management API built with ASP.NET Core 9.0. It follows RESTful API principles and runs in Docker containers. I also added optional integrations for caching (Redis) and event publishing (RabbitMQ), along with a PostgreSQL database.
 
-### Key Features
--  JWT-based authentication and authorization
--  Pagination, filtering, and sorting for todo items
--  Public and private todo visibility modes
--  Event-driven architecture with RabbitMQ
--  Redis caching for public todos
--  Swagger/OpenAPI documentation
--  Containerized deployment with Docker Compose
--  Full E2E test coverage with Cypress
+Instead of a long list of features, in short: the API supports JWT authentication, public and private todo lists, and basic operations like filtering, sorting, and pagination. The whole setup is fully covered by the provided Cypress E2E tests and documented via Swagger.
 
 ![Project Architecture]
 <img width="940" height="325" alt="зображення" src="https://github.com/user-attachments/assets/1679783c-f8b4-4e56-a6f1-355d42740638" />
@@ -29,66 +21,37 @@ This document outlines the implementation of a comprehensive Todo Management API
 
 ## 2. How to Run Locally
 
-### Prerequisites
-- .NET 9 SDK installed
-- Docker and Docker Compose installed
-- Visual Studio 2022
+Prerequisites
 
-### Quick Start
+Make sure you have .NET 9 SDK, Docker, Docker Compose, and Visual Studio 2022 installed.
+Quick Start
 
-1. **Start the Infrastructure**
-   
-   Open a terminal in the project root directory and start the required containers:
-   ```bash
-   docker-compose up -d db redis rabbitmq
-   ```
-   This will launch PostgreSQL (port 5433), Redis (port 6379), and RabbitMQ (port 5672).
+    Start the Infrastructure Open a terminal in the project root directory and start the required containers:
+    Bash
 
-2. **Apply Database Migrations**
-   
-   Open the Package Manager Console in Visual Studio and run:
-   ```powershell
-   Update-Database
-   ```
-   This creates the `TodoDb` database and applies all necessary schema migrations.
+    docker-compose up -d db redis rabbitmq
 
-3. **Run the API**
-   
-   Start the application using the **Todo.Api** profile in Visual Studio. The backend will be available at:
-   ```
-   http://localhost:3087
-   ```
+    This will launch PostgreSQL (port 5433), Redis (port 6379), and RabbitMQ (port 5672).
 
-4. **Run the Frontend**
-   
-   Navigate to the frontend folder, install dependencies, and start the development server:
-   ```bash
-   npm install
-   npm run dev
-   ```
+    Apply Database Migrations Open the Package Manager Console in Visual Studio and run:
+    PowerShell
 
+    Update-Database
+
+    This creates the TodoDb database and applies all necessary tables.
+
+    Run the API Start the application using the Todo.Api profile in Visual Studio. The backend will be available at:
+
+    http://localhost:3087
+
+    Run the Frontend Navigate to the frontend folder, install dependencies, and start the development server:
+    Bash
+
+    npm install
+    npm run dev
 ---
 
 ## 3. Database Setup and Schema
-
-### Technology Choice
-PostgreSQL was selected as the primary relational database due to its robustness, ACID compliance, and excellent integration with Entity Framework Core.
-
-### Architecture
-The application uses the **Code-First approach** with Entity Framework Core to manage the database schema and migrations, enabling version control of database changes and seamless integration with application code.
-
-### Database Entities
-
-#### Users Table
-Stores user credentials with secure password hashing using BCrypt.
-
-| Field | Type | Constraints |
-|-------|------|-------------|
-| Id | UUID | Primary Key |
-| Email | VARCHAR | Unique, Required |
-| PasswordHash | VARCHAR | Required |
-| DisplayName | VARCHAR | Optional |
-| CreatedAt | TIMESTAMP | UTC |
 
 ![Database Diagram]
 <img width="940" height="623" alt="зображення" src="https://github.com/user-attachments/assets/d92f9af5-5de1-4290-bccf-cb9826178d71" />
@@ -114,14 +77,10 @@ Stores user credentials with secure password hashing using BCrypt.
 
 ## 4. API Documentation (Swagger)
 
-### Accessing Swagger UI
-Navigate to `http://localhost:3087/swagger` to access the interactive API documentation.
+ Navigate to http://localhost:3087/swagger to see all available endpoints.
 
 ### Authentication Flow
-1. Call `POST /api/auth/register` or `POST /api/auth/login` to obtain a JWT token
-2. Click the "Authorize" button in Swagger
-3. Enter the token in the format: `Bearer <your_token>`
-4. Access protected endpoints seamlessly
+To test protected routes, use the POST /api/auth/register or POST /api/auth/login endpoint to get a JWT token. Then, click the "Authorize" button at the top of the Swagger page and paste your token in the format: Bearer <your_token>.
 
 ![Swagger UI - Endpoints Overview]
 <img width="929" height="654" alt="зображення" src="https://github.com/user-attachments/assets/b475928d-b96b-4370-9a2f-20afb12b5672" />
@@ -145,22 +104,9 @@ Navigate to `http://localhost:3087/swagger` to access the interactive API docume
 
 ## 5. Bonus Integrations
 
-Both optional bonus integrations were successfully implemented and containerized to enhance application performance and architecture.
+I implemented both optional bonus tasks and added them to the Docker Compose setup.
 
-### 5.1 Redis Integration (+10 Points)
-
-**Purpose:** Cache public todo items to reduce database load for guest users.
-
-**Implementation:**
-- Integrated `Microsoft.Extensions.Caching.StackExchangeRedis`
-- Redis container runs on port 6379
-- Public todos response cached with 1-minute TTL
-- Automatic cache invalidation on todo mutations
-
-**Benefits:**
-- Significantly reduced database queries
-- Improved response times for public todo requests
-- Scalable solution for high-traffic scenarios
+Implementation: I used Microsoft.Extensions.Caching.StackExchangeRedis to cache the response of the public tasks list (GET /api/todos/public). The cache has a 1-minute TTL. This simple approach prevents the database from being queried every time a guest user opens the main page.
 
 ![Redis Cache Monitoring]
 <img width="617" height="274" alt="зображення" src="https://github.com/user-attachments/assets/9dacfa2b-5c90-44c4-a203-234ae83e9302" />
@@ -168,31 +114,7 @@ Both optional bonus integrations were successfully implemented and containerized
 
 ### 5.2 RabbitMQ Integration (+10 Points)
 
-**Purpose:** Implement event-driven architecture for decoupled, scalable communication.
-
-**Implementation:**
-- RabbitMQ container runs on port 5672
-- Fanout exchange: `todo_events`
-- Published domain events:
-  - `TodoCreated` - When a new todo is created
-  - `TodoUpdated` - When a todo is modified
-  - `TodoCompleted` - When completion status changes
-  - `TodoDeleted` - When a todo is removed
-
-**Event Payload Structure:**
-```json
-{
-  "id": "guid",
-  "title": "string",
-  "isPublic": "boolean",
-  "isCompleted": "boolean"
-}
-```
-
-**Benefits:**
-- Decoupled architecture enabling independent service scaling
-- Real-time event notifications for connected clients
-- Foundation for future microservices (notifications, analytics, audit logging)
+Implementation: RabbitMQ is configured to handle domain events. Whenever a task state changes, the backend publishes a JSON event (TodoCreated, TodoUpdated, TodoCompleted, TodoDeleted) to the todo_events fanout exchange. This separates background event logic from the main CRUD operations.
 
 ![RabbitMQ Management Console]
 <img width="608" height="273" alt="зображення" src="https://github.com/user-attachments/assets/222dd861-eea8-4e17-b973-82000d07dc49" />
@@ -202,17 +124,7 @@ Both optional bonus integrations were successfully implemented and containerized
 
 ## 6. Automated E2E Testing (Cypress)
 
-The provided Cypress test suite was executed against the backend to verify comprehensive functionality.
-
-### Test Coverage
--  **Authentication:** User registration, login, token validation
--  **Authorization:** User isolation and permissions enforcement
--  **CRUD Operations:** Create, read, update, delete todos
--  **Pagination:** Correct page-based data retrieval
--  **Filtering:** Status, priority, date range filters
--  **Sorting:** Multiple sort keys with ascending/descending order
--  **Public Todos:** Anonymous access to public items
--  **Visibility Control:** Private todos remain protected
+The backend passes the provided Cypress E2E test suite. It checks everything from JWT authentication and user isolation to CRUD operations, pagination, filtering, and sorting.
 
 ### Port Configuration
 The backend strictly listens on **port 3087** to ensure compatibility with the automated scoring system.
@@ -223,9 +135,7 @@ The backend strictly listens on **port 3087** to ensure compatibility with the a
 ```
 
 **Configuration in `Dockerfile`:**
-```dockerfile
 ENV ASPNETCORE_URLS=http://+:3087
-```
 
 ### Test Results
 
