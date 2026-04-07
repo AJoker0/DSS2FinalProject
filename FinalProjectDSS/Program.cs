@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
+using System.Text.Json;
 
 namespace FinalProjectDSS
 {
@@ -22,7 +23,11 @@ namespace FinalProjectDSS
             }
 
             // Add services to the container.
-            builder.Services.AddControllers();
+            builder.Services.AddControllers()
+                .AddJsonOptions(options =>
+                {
+                    options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+                });
 
             // Подключаем Redis (с правильным именем контейнера todo_redis)
             // Подключаем Redis: берем из конфига (для Docker), либо используем localhost (для Visual Studio)

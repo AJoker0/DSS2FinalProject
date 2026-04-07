@@ -58,31 +58,8 @@ namespace FinalProjectDSS.Controllers
             [FromQuery] string sortBy = "createdAt", [FromQuery] string sortDir = "desc",
             [FromQuery] int page = 1, [FromQuery] int pageSize = 10)
         {
-            //string cacheKey = $"public_todos_{page}_{pageSize}_{search}_{status}_{priority}_{sortBy}_{sortDir}";
-
-            //var cachedData = await _cache.GetStringAsync(cacheKey);
-            //if (!string.IsNullOrEmpty(cachedData))
-            //{
-            //    return Content(cachedData, "application/json");
-            //}
-
             var query = _context.Todos.Where(t => t.IsPublic);
-            var result = await ApplyFiltersAndReturn(query, page, pageSize, status, priority, dueFrom, dueTo, search, sortBy, sortDir) as OkObjectResult;
-
-            //if (result != null && result.Value != null)
-            //{
-            // Фикс для фронтенда: сохраняем в кэш с маленькой буквы (camelCase)
-            //var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-            //await _cache.SetStringAsync(cacheKey, JsonSerializer.Serialize(result.Value, jsonOptions), new DistributedCacheEntryOptions
-            //{
-            //AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(1)
-            //});
-
-
-        //}
-        return result;
-
-            return BadRequest();
+            return await ApplyFiltersAndReturn(query, page, pageSize, status, priority, dueFrom, dueTo, search, sortBy, sortDir);
         }
 
         // --- ЛИЧНЫЕ ЗАДАЧИ ---
@@ -173,7 +150,7 @@ namespace FinalProjectDSS.Controllers
             _context.Todos.Add(todo);
             _context.SaveChanges();
 
-            //_rabbitMqService.PublishEvent("TodoCreated", new { Id = todo.Id, Title = todo.Title, IsPublic = todo.IsPublic });
+            _rabbitMqService.PublishEvent("TodoCreated", new { Id = todo.Id, Title = todo.Title, IsPublic = todo.IsPublic });
 
             return CreatedAtAction(nameof(GetTodo), new { id = todo.Id }, MapToResponse(todo));
         }
@@ -209,7 +186,7 @@ namespace FinalProjectDSS.Controllers
 
             _context.SaveChanges();
 
-            //_rabbitMqService.PublishEvent("TodoUpdated", new { Id = todo.Id, Title = todo.Title });
+            _rabbitMqService.PublishEvent("TodoUpdated", new { Id = todo.Id, Title = todo.Title });
 
             return Ok(MapToResponse(todo));
         }
@@ -229,7 +206,7 @@ namespace FinalProjectDSS.Controllers
             _context.SaveChanges();
 
             // ДОБАВЛЕНО ТРЕБОВАНИЕ ИЗ ТЗ (Раздел 9: Отправка TodoCompleted)
-            //_rabbitMqService.PublishEvent("TodoCompleted", new { Id = todo.Id, IsCompleted = todo.IsCompleted });
+            _rabbitMqService.PublishEvent("TodoCompleted", new { Id = todo.Id, IsCompleted = todo.IsCompleted });
 
             return Ok(MapToResponse(todo));
         }
@@ -246,7 +223,7 @@ namespace FinalProjectDSS.Controllers
             _context.Todos.Remove(todo);
             _context.SaveChanges();
 
-            //_rabbitMqService.PublishEvent("TodoDeleted", new { Id = id });
+            _rabbitMqService.PublishEvent("TodoDeleted", new { Id = id });
 
             return NoContent();
         }
