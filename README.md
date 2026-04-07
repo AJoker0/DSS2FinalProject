@@ -138,3 +138,69 @@ ENV ASPNETCORE_URLS=http://+:3087
 
 
 
+
+
+
+**For me**
+1. Управление инфраструктурой (Docker)
+
+База данных, Redis и RabbitMQ крутятся в контейнерах. Бэкенд к ним подключается.
+
+
+    docker-compose up -d db redis rabbitmq
+
+
+    docker-compose down
+
+ 2. База данных (PostgreSQL и EF Core)
+
+    Подключение через DBeaver:
+
+        Хост: localhost
+
+        Порт: 5433 (не 5432)
+
+        База: TodoDb
+
+        Юзер: postgres / Пароль: ****
+
+    Миграции (через Visual Studio):
+    Открой Tools -> NuGet Package Manager -> Package Manager Console:
+
+        Add-Migration 
+
+        Update-Database
+
+ 3. Запуск проекта локально (для разработки)
+
+
+        Swagger будет тут: http://localhost:3087/swagger
+
+    
+
+    npm run dev
+
+        Сайт откроется тут: http://localhost:5173
+
+ 4. Тестирование Cypress (E2E)
+
+У тебя есть два способа гонять тесты:
+
+
+
+    (npm run dev).
+
+
+    npm run cy:open
+
+Способ Б: Полный Docker-прогон (как у преподавателя)
+Создает изолированную среду с пустой базой и выдает финальную оценку в score.json.
+
+   
+
+    docker build -t todo-api-example .
+
+   
+
+    $env:BACKEND_IMAGE="todo-api-example"
+    docker compose -f docker-compose.e2e.yml up --build --exit-code-from cypress
