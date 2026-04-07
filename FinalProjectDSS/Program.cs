@@ -12,33 +12,36 @@ namespace FinalProjectDSS
     {
         public static void Main(string[] args)
         {
+            // Create a new WebApplication builder
             var builder = WebApplication.CreateBuilder(args);
 
+            // If running inside a Docker container, override configuration for services
             if (Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true")
             {
+                // Use Docker service names for connections
                 builder.Configuration["ConnectionStrings:DefaultConnection"] = "Host=db;Port=5432;Database=TodoDb;Username=postgres;Password=postgres";
                 builder.Configuration["RedisConnection"] = "redis:6379,abortConnect=false";
                 builder.Configuration["RabbitHost"] = "rabbitmq";
                 builder.Configuration["Jwt:Key"] = "SuperSecretKeyThatIsAtLeast32CharactersLong!";
             }
 
-            // Add services to the container.
+            // Add controllers and configure JSON serialization (camelCase)
             builder.Services.AddControllers()
                 .AddJsonOptions(options =>
                 {
                     options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
                 });
 
-            // Подключаем Redis (с правильным именем контейнера todo_redis)
-            // Подключаем Redis: берем из конфига (для Docker), либо используем localhost (для Visual Studio)
+            // Configure Redis distributed cache (for both local and Docker)
             builder.Services.AddStackExchangeRedisCache(options =>
             {
                 options.Configuration = builder.Configuration["RedisConnection"] ?? "localhost:6379,abortConnect=false,connectTimeout=10000";
             });
 
-            // register our service for work RabbitMQ
+            // Register RabbitMQ service as a singleton
             builder.Services.AddSingleton<FinalProjectDSS.Services.RabbitMqService>();
 
+            // Configure CORS to allow any origin, method, and header
             builder.Services.AddCors(options =>
             {
                 options.AddPolicy("AllowAll", policy =>
@@ -49,16 +52,16 @@ namespace FinalProjectDSS
                 });
             });
 
-            // --- НАСТРОЙКА КЛАССИЧЕСКОГО SWAGGER ---
+            //  SWAGGER CONFIGURATION
             builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddSwaggerGen(c =>
             {
                 c.SwaggerDoc("v1", new OpenApiInfo { Title = "Todo API", Version = "v1" });
 
-                // Настраиваем кнопку Authorize для JWT токенов
+                // Add JWT Bearer authentication to Swagger UI
                 c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
                 {
-                    Description = "Введите JWT токен (слово Bearer писать НЕ нужно, оно подставится само)",
+                    Description = "Enter JWT token",
                     Name = "Authorization",
                     In = ParameterLocation.Header,
                     Type = SecuritySchemeType.Http,
@@ -80,12 +83,12 @@ namespace FinalProjectDSS
                     }
                 });
             });
-            // ---------------------------------------
 
+            // Register EF Core DbContext with PostgreSQL
             builder.Services.AddDbContext<AppDbContext>(options =>
                 options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-            // add JWT token checker 
+            // Configure JWT authentication
             builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(options =>
                 {
@@ -101,9 +104,10 @@ namespace FinalProjectDSS
                     };
                 });
             builder.Services.AddAuthorization();
-
+            // Build the application
             var app = builder.Build();
 
+            // Apply any pending EF Core migrations at startup
             using (var scope = app.Services.CreateScope())
             {
                 var dbContext = scope.ServiceProvider.GetRequiredService<FinalProjectDSS.Data.AppDbContext>();
@@ -113,20 +117,24 @@ namespace FinalProjectDSS
             // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())
             {
-                // Включаем интерфейс Swagger
+                // Enable Swagger UI in development
                 app.UseSwagger();
                 app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Todo API v1"));
             }
 
             app.UseHttpsRedirection();
 
+            // Enable CORS policy
             app.UseCors("AllowAll");
 
+            // Enable authentication and authorization middleware
             app.UseAuthentication();
             app.UseAuthorization();
 
+            // Map controller routes
             app.MapControllers();
 
+            // Start the application
             app.Run();
         }
     }

@@ -41,7 +41,7 @@ services:
       - Jwt__Issuer=TodoApi
       - Jwt__Audience=TodoApiClient
       - ASPNETCORE_ENVIRONMENT=Development
-      # Обновленные доступы:
+      
       - RedisConnection=redis:6379,abortConnect=false
       - RabbitHost=rabbitmq
       - RabbitUser=admin

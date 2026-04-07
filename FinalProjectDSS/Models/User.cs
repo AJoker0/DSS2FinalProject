@@ -8,7 +8,7 @@
         public string? DisplayName { get; set; }
         public DateTime CreatedAt { get; set; }
 
-        // Связь с задачами
+        // navigation property for communication with TodoItem
         public ICollection<TodoItem> Todos { get; set; } = new List<TodoItem>();
     }
 }
