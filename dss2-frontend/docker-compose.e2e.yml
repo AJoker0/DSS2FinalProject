@@ -1,0 +1,47 @@
+services:
+  backend:
+    image: ${BACKEND_IMAGE:-todo-api-example}
+    environment:
+      ASPNETCORE_URLS: http://+:3087
+      ConnectionStrings__Default: Host=db;Port=5432;Database=todos;Username=postgres;Password=postgres
+      Jwt__Key: super_secret_dev_key_change_me
+    ports:
+      - "3087:3087"
+    depends_on:
+      - db
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: todos
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - todo_db_data:/var/lib/postgresql/data
+
+  frontend:
+    build:
+      context: .
+      args:
+        VITE_API_BASE_URL: http://backend:3087
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+  cypress:
+    build:
+      context: .
+      dockerfile: cypress.Dockerfile
+    environment:
+      CYPRESS_baseUrl: http://frontend
+      CYPRESS_API_BASE_URL: http://backend:3087
+    depends_on:
+      - frontend
+    volumes:
+      - ./cypress/results:/e2e/cypress/results
+
+volumes:
+  todo_db_data:
