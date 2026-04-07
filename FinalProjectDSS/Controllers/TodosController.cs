@@ -15,13 +15,15 @@ namespace FinalProjectDSS.Controllers
     [Authorize]
     [ApiController]
     [Route("api/[controller]")]
+
+    
     public class TodosController : ControllerBase
     {
         private readonly AppDbContext _context; // Database context
         private readonly IDistributedCache _cache; // Redis cache
         private readonly RabbitMqService _rabbitMqService; // RabbitMQ event publisher 
-        
-        // Constructor: injects dependencies
+
+        // Constructor: Dependency Injection is used here to loosely couple services
         public TodosController(AppDbContext context, IDistributedCache cache, RabbitMqService rabbitMqService)
         {
             _context = context;
@@ -29,7 +31,7 @@ namespace FinalProjectDSS.Controllers
             _rabbitMqService = rabbitMqService;
         }
 
-        // Helper: get current user's ID from JWT claims
+        // Helper: Extracts the User ID securely from the JWT claims payload
         private Guid GetUserId()
         {
             var userIdString = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
