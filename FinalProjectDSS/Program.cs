@@ -1,9 +1,9 @@
 using FinalProjectDSS.Data;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
 using System.Text;
-using Scalar.AspNetCore;
 
 namespace FinalProjectDSS
 {
@@ -16,12 +16,9 @@ namespace FinalProjectDSS
             // Add services to the container.
             builder.Services.AddControllers();
 
-            //connect Redis
-            // Подключаем Redis
-            // Подключаем Redis
+            // Подключаем Redis (с правильным именем контейнера todo_redis)
             builder.Services.AddStackExchangeRedisCache(options =>
             {
-                // Заменили "redis" на "todo_redis" (имя контейнера)
                 options.Configuration = "todo_redis:6379,abortConnect=false,connectTimeout=10000";
             });
 
@@ -38,8 +35,38 @@ namespace FinalProjectDSS
                 });
             });
 
+            // --- НАСТРОЙКА КЛАССИЧЕСКОГО SWAGGER ---
+            builder.Services.AddEndpointsApiExplorer();
+            builder.Services.AddSwaggerGen(c =>
+            {
+                c.SwaggerDoc("v1", new OpenApiInfo { Title = "Todo API", Version = "v1" });
 
-            builder.Services.AddOpenApi();
+                // Настраиваем кнопку Authorize для JWT токенов
+                c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+                {
+                    Description = "Введите JWT токен (слово Bearer писать НЕ нужно, оно подставится само)",
+                    Name = "Authorization",
+                    In = ParameterLocation.Header,
+                    Type = SecuritySchemeType.Http,
+                    Scheme = "bearer"
+                });
+
+                c.AddSecurityRequirement(new OpenApiSecurityRequirement
+                {
+                    {
+                        new OpenApiSecurityScheme
+                        {
+                            Reference = new OpenApiReference
+                            {
+                                Type = ReferenceType.SecurityScheme,
+                                Id = "Bearer"
+                            }
+                        },
+                        Array.Empty<string>()
+                    }
+                });
+            });
+            // ---------------------------------------
 
             builder.Services.AddDbContext<AppDbContext>(options =>
                 options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
@@ -66,16 +93,14 @@ namespace FinalProjectDSS
             // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())
             {
-                
-                app.MapOpenApi();
-
-                app.MapScalarApiReference();
+                // Включаем интерфейс Swagger
+                app.UseSwagger();
+                app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Todo API v1"));
             }
 
             app.UseHttpsRedirection();
 
             app.UseCors("AllowAll");
-
 
             app.UseAuthentication();
             app.UseAuthorization();
